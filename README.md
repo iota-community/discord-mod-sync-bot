@@ -8,7 +8,12 @@
 1. Create a discord bot.
 
 ```
-Create a discord bot with the following permissions:
+Create a discord bot with the following:
+
+Intents:
+Server Members Intent (GUILD_MEMBERS)
+
+Permissions:
 MANAGE_ROLES
 MODERATE_MEMBERS
 BAN_MEMBERS
