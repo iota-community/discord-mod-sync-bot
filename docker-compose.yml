@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: discord-mod-sync-bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command: npm start

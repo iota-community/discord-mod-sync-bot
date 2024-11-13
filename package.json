@@ -1,0 +1,24 @@
+{
+  "name": "discord-mod-sync-bot",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "nodemon --watch src --exec 'ts-node' src/main.ts"
+  },
+  "keywords": [],
+  "author": "Patrick Fischer (Pathin) > https://pathin.me",
+  "license": "ISC",
+  "description": "A Discord bot that syncs timeouts, muted roles and bans between multiple servers.",
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "nodemon": "^3.1.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  }
+}
