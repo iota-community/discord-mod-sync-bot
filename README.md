@@ -17,6 +17,7 @@ Permissions:
 MANAGE_ROLES
 MODERATE_MEMBERS
 BAN_MEMBERS
+SEND_MESSAGES
 ```
 
 2. Set the bot token in .env
@@ -24,11 +25,15 @@ BAN_MEMBERS
 ```
 DISCORD_TOKEN=YOUR_BOT_TOKEN
 ```
+3. Set the Channel ID where the bot updates will be sent
 
-3. Run the bot via docker
+```
+BOT_UPDATES_DISCORD_CHANNEL_ID=YOUR_CHANNEL_ID
+```
+4. Run the bot via docker
 
 ```
 docker compose up -d --build
 ```
 
-4. Join the guilds you want to sync with the bot
+5. Join the guilds you want to sync with the bot
