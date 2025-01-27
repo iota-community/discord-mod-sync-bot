@@ -1,4 +1,15 @@
-import { Client, IntentsBitField, GuildBan, GuildMember, PartialGuildMember, Partials, TextChannel, time, TimestampStyles, subtext} from 'discord.js';
+import { 
+    Client, 
+    IntentsBitField, 
+    GuildBan, GuildMember, 
+    PartialGuildMember, 
+    Partials, 
+    TextChannel, 
+    time, 
+    TimestampStyles, 
+    subtext, 
+    inlineCode, 
+    bold } from 'discord.js';
 import * as fs from 'fs';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
@@ -48,45 +59,49 @@ function saveData() {
 const processingUsers = new Set<string>();
 
 // Sync bans across all guilds
-async function syncBans(userId: string, banned: boolean) {
+async function syncBans(userId: string, banned: boolean, logMsg: string, originGuild: string) {
     syncData.bans[userId] = banned;
     saveData();
 
-    let bannedMsg = '';
-    const lastGuild = Array.from(client.guilds.cache.values()).at(-1);
+    let bannedMsg: string[] = [];
     for (const guild of client.guilds.cache.values()) {
         try {
-            const member = await guild.members.fetch(userId).catch(() => null);
             if (banned) {
                 await guild.bans.create(userId, { reason: 'Ban synced from another server.' });
-                console.log(`Banned user ${userId} in guild ${guild.id}`);
-                if(member) {
-                    bannedMsg = bannedMsg + `${subtext(`Banned ${member?.displayName} in ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
+                const member = await guild.members.fetch(userId).catch(() => null);
+                console.log(`Banned user ${userId} in guild ${guild.id})`);
+                if(guild.id != originGuild) {
+                    if(bannedMsg.length == 0) {
+                        bannedMsg.push( `🔄 ${bold('Propagation:')} Synced ban across the following servers`);
+                    }
+                    if(member) {
+                        bannedMsg.push(`    🚫 Banned **${member?.displayName}** from **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
+                    } else {
+                        bannedMsg.push(`    🚫 Ban enforced on **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
+                    }
+                    
                 }
             } else {
-                const member = await guild.bans.remove(userId, 'Unban synced from another server.');
+                const bannedMember = await guild.bans.remove(userId, 'Unban synced from another server.');
                 console.log(`Unbanned user ${userId} in guild ${guild.id}`);
-                if (member) {
-                    bannedMsg = bannedMsg + `${subtext(`Unbanned ${member?.displayName} in ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
+                if (bannedMember && (guild.id != originGuild)) {
+                    if(bannedMsg.length == 0) {
+                        bannedMsg.push( `🔄 ${bold('Propagation:')} Synced unban across the following servers`);
+                    }
+                    bannedMsg.push(`    🚫 Unbanned **${bannedMember?.displayName}** from **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
                 }
-            }
-            // Add a new line unless processing the final ban or unban update.
-            if(lastGuild !== guild) {
-                bannedMsg = bannedMsg + "\n";
             }
         } catch (error) {
             // Ignore errors if the user is not in the guild or already banned/unbanned
         }
     }
 
-    // Send updates only when a user was either banned or unbanned.
-    if(bannedMsg){
-        reportBotStatusToUpdatesChannel(bannedMsg);
-    }
+    bannedMsg.push(`📅 ${bold('Date:')} ${time(new Date(), 'F')} (UTC)`);
+    reportBotStatusToUpdatesChannel(logMsg + '\n' + bannedMsg.join('\n') + `\u200B\n\u200B`);
 }
 
 // Sync timeouts across all guilds
-async function syncTimeouts(userId: string, timeoutEnd: number | null) {
+async function syncTimeouts(userId: string, timeoutEnd: number | null, logMessage: string) {
     if (timeoutEnd && timeoutEnd > Date.now()) {
         syncData.timeouts[userId] = timeoutEnd;
     } else {
@@ -95,7 +110,7 @@ async function syncTimeouts(userId: string, timeoutEnd: number | null) {
     }
     saveData();
 
-    let timeoutMsg = '';
+    let timeoutMsg: string[] = [];
     // Fetch the last guild.
     const lastGuild = Array.from(client.guilds.cache.values()).at(-1);
     for (const guild of client.guilds.cache.values()) {
@@ -106,33 +121,31 @@ async function syncTimeouts(userId: string, timeoutEnd: number | null) {
                 if (currentTimeout !== timeoutEnd) {
                     await member.timeout(timeoutEnd ? timeoutEnd - Date.now() : null, 'Timeout synced from another server.');
                     console.log(`Set timeout for user ${userId} in guild ${guild.id}`);
-                    timeoutMsg = timeoutMsg + `${subtext(`Set timeout for user ${member.displayName} in server ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
-                    // Add a new line unless processing the final update.
-                    if(lastGuild !== guild) {
-                        timeoutMsg = timeoutMsg + "\n";
+                    if(timeoutMsg.length == 0) {
+                        timeoutMsg.push( `🔄 ${bold('Propagation:')} Synced timeout across the following servers`);
                     }
+                    timeoutMsg.push(`   ⏳ Timeout applied to **${member.displayName}** in **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
                 }
             }
         } catch (error) {
             // Ignore errors if the member is not in the guild or lacks permissions
         }
     }
-
-    // Send timeout updatess.
-    if(timeoutMsg){
-        reportBotStatusToUpdatesChannel(timeoutMsg);
-    }
+    
+    timeoutMsg.push(`📅 ${bold('Date:')} ${time(new Date(), 'F')} (UTC)`);
+    reportBotStatusToUpdatesChannel(logMessage + '\n' + timeoutMsg.join('\n') + `\u200B\n\u200B`);
+    
 }
 
 // Sync Muted role across all guilds
-async function syncMutedRole(userId: string, muted: boolean, originGuildId: string) {
+async function syncMutedRole(userId: string, muted: boolean, originGuildId: string, logMessage: string) {
     if (processingUsers.has(userId)) return;
 
     processingUsers.add(userId);
     syncData.mutedRoles[userId] = { muted, originGuildId };
     saveData();
 
-    let mutedRoleMsg = '';
+    let mutedRoleMsg: string[] = [];
     // Fetch the last guild.
     const lastGuild = Array.from(client.guilds.cache.values()).at(-1);
 
@@ -151,31 +164,26 @@ async function syncMutedRole(userId: string, muted: boolean, originGuildId: stri
                         reason: 'Muted role created for synchronization.',
                     });
                     console.log(`Created Muted role in guild ${guild.id}`);
-                    mutedRoleMsg = mutedRoleMsg + `${subtext(`Created Muted role in guild ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
-                    // Add a new line unless processing the final update.
-                    if(lastGuild !== guild) {
-                        mutedRoleMsg = mutedRoleMsg + "\n";
-                    }
+                    reportBotStatusToUpdatesChannel(`🔇 Created **Muted role** in guild **${guild.name}** - ${time(new Date(), TimestampStyles.RelativeTime)}`);
                 }
                 if (muted) {
                     if (!member.roles.cache.has(mutedRole.id)) {
                         await member.roles.add(mutedRole, 'Muted role synced from another server.');
                         console.log(`Added Muted role to user ${userId} in guild ${guild.id}`);
-                        mutedRoleMsg = mutedRoleMsg + `${subtext(`Added Muted role to user ${member.displayName} in server ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
-                        // Add a new line unless processing the final update.
-                        if(lastGuild !== guild) {
-                           mutedRoleMsg = mutedRoleMsg + "\n";
+                        if(mutedRoleMsg.length == 0) {
+                            mutedRoleMsg.push( `🔄 ${bold('Syncing Muted role across servers')}`);
                         }
+                        mutedRoleMsg.push(`    🔇 Added **Muted role** to **${member.displayName}** in server **${guild.name}** - ${time(new Date(), TimestampStyles.RelativeTime)}`); 
                     }
                 } else {
                     if (member.roles.cache.has(mutedRole.id)) {
                         await member.roles.remove(mutedRole, 'Muted role removed synced from another server.');
                         console.log(`Removed Muted role from user ${userId} in guild ${guild.id}`);
-                        mutedRoleMsg = mutedRoleMsg + `${subtext(`Removed Muted role from user ${member.displayName} in server ${guild.name} - ${time(new Date(), TimestampStyles.RelativeTime)}`)}`;
-                        // Add a new line unless processing the final update.
-                        if(lastGuild !== guild) {
-                           mutedRoleMsg = mutedRoleMsg + "\n";
+                        if(mutedRoleMsg.length == 0) {
+                            mutedRoleMsg.push( `🔄 ${bold('Syncing Muted role across servers')}`);
                         }
+                        mutedRoleMsg.push(`    🔇 Removed **Muted role** from user **${member.displayName}** in server **${guild.name}** - ${time(new Date(), TimestampStyles.RelativeTime)}`);
+                        
                     }
                 }
             }
@@ -185,9 +193,8 @@ async function syncMutedRole(userId: string, muted: boolean, originGuildId: stri
     }
 
     // Send timeout updates.
-    if(mutedRoleMsg){
-        reportBotStatusToUpdatesChannel(mutedRoleMsg);
-    }
+    mutedRoleMsg.push(`📅 ${bold('Date:')} ${time(new Date(), 'F')} (UTC)`);
+    reportBotStatusToUpdatesChannel(logMessage + '\n' + mutedRoleMsg.join('\n') + `\u200B\n\u200B`);
     processingUsers.delete(userId);
 }
 
@@ -220,10 +227,14 @@ function isEmptyStr(str?: string) {
 client.on('guildBanAdd', async (ban: GuildBan) => {
     const userId = ban.user.id;
     if (syncData.bans[userId]) return; // Already banned globally
-
     console.log(`User ${userId} banned in guild ${ban.guild.id}. Syncing ban across all guilds.`);
-    reportBotStatusToUpdatesChannel(`User ${ban.user.displayName} banned in server ${ban.guild.name}. Syncing ban across all servers.`)
-    await syncBans(userId, true);
+    const logMessage = [
+        `🚨 ${bold('User Banned:')}`,
+        `👤 ${bold('Username:')} ${inlineCode(ban.user.displayName)}`,
+        `🆔 ${bold('User ID:')} ${inlineCode(ban.user.id)}`,
+        `🏠 ${bold('Guild:')} ${inlineCode(ban.guild.name)}`,
+      ].join('\n');    
+    await syncBans(userId, true, logMessage, ban.guild.id);
 });
 
 // Event handler for guild ban remove
@@ -232,8 +243,13 @@ client.on('guildBanRemove', async (ban: GuildBan) => {
     if (!syncData.bans[userId]) return; // Already unbanned globally
 
     console.log(`User ${userId} unbanned in guild ${ban.guild.id}. Syncing unban across all guilds.`);
-    reportBotStatusToUpdatesChannel(`User ${ban.user.displayName} unbanned in server ${ban.guild.name}. Syncing unban across all servers.`)
-    await syncBans(userId, false);
+    const logMessage = [
+        `🚨 ${bold('User Unbanned:')}`,
+        `👤 ${bold('Username:')} ${inlineCode(ban.user.displayName)}`,
+        `🆔 ${bold('User ID:')} ${inlineCode(ban.user.id)}`,
+        `🏠 ${bold('Guild:')} ${inlineCode(ban.guild.name)}`,
+      ].join('\n');    
+    await syncBans(userId, false, logMessage, ban.guild.id);
 });
 
 // Event handler for member update (for timeouts and Muted role)
@@ -246,8 +262,13 @@ client.on('guildMemberUpdate', async (oldMember: GuildMember | PartialGuildMembe
 
     if (oldTimeout !== newTimeout) {
         console.log(`Timeout updated for user ${userId} in guild ${newMember.guild.id}. Syncing timeout.`);
-        reportBotStatusToUpdatesChannel(`Timeout updated for user ${newMember.displayName} in server ${newMember.guild.name}. Syncing timeout.`)
-        await syncTimeouts(userId, newTimeout);
+        const logMessage = [
+            `🚨 ${bold('Timeout updated for user:')}`,
+            `👤 ${bold('Username:')} ${inlineCode(newMember.displayName)}`,
+            `🆔 ${bold('User ID:')} ${inlineCode(newMember.id)}`,
+            `🏠 ${bold('Guild:')} ${inlineCode(newMember.guild.name)}`,
+        ].join('\n');  
+        await syncTimeouts(userId, newTimeout, logMessage);
     }
 
     // Check for role changes (Muted role)
@@ -268,8 +289,13 @@ client.on('guildMemberUpdate', async (oldMember: GuildMember | PartialGuildMembe
             syncData.mutedRoles[userId].originGuildId === originGuildId
         ) {
             console.log(`Muted role ${hasMutedRole ? 'added to' : 'removed from'} user ${userId} in guild ${originGuildId}. Syncing Muted role.`);
-            reportBotStatusToUpdatesChannel(`Muted role ${hasMutedRole ? 'added to' : 'removed from'} user ${newMember.displayName} in server ${newMember.guild.name}. Syncing Muted role.`);
-            await syncMutedRole(userId, hasMutedRole, originGuildId);
+            const logMessage = [
+                `🔇 ${bold('Muted role')} ${hasMutedRole ? 'added to' : 'removed from'} ${bold('user:')}`,
+                `👤 ${bold('Username:')} ${inlineCode(newMember.displayName)}`,
+                `🆔 ${bold('User ID:')} ${inlineCode(newMember.id)}`,
+                `🏠 ${bold('Guild:')} ${inlineCode(newMember.guild.name)}`,
+            ].join('\n');            
+            await syncMutedRole(userId, hasMutedRole, originGuildId, logMessage);
         } else {
             // Change happened in a non-origin guild, revert the change
             console.log(`Muted role change detected in non-origin guild for user ${userId} in guild ${originGuildId}. Reverting change.`);
@@ -284,7 +310,7 @@ client.on('guildMemberUpdate', async (oldMember: GuildMember | PartialGuildMembe
                     reason: 'Muted role created for synchronization.',
                 });
                 console.log(`Created Muted role in guild ${member.guild.id}`);
-                reportBotStatusToUpdatesChannel(`Created Muted role in server ${member.guild.name}`);
+                reportBotStatusToUpdatesChannel(`🔇 Created **Muted role** in server **${member.guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
             }
 
             processingUsers.add(userId);
@@ -293,14 +319,14 @@ client.on('guildMemberUpdate', async (oldMember: GuildMember | PartialGuildMembe
                 if (!member.roles.cache.has(mutedRole.id)) {
                     await member.roles.add(mutedRole, 'Re-adding Muted role due to synchronization.');
                     console.log(`Re-added Muted role to user ${userId} in guild ${member.guild.id}`);
-                    reportBotStatusToUpdatesChannel(`Re-added Muted role to user ${member.displayName} in server ${member.guild.name}`);
+                    reportBotStatusToUpdatesChannel(`🔄 Re-added **Muted role** to user **${member.displayName}** in server **${member.guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                 }
             } else {
                 // Should not be muted, remove the role
                 if (member.roles.cache.has(mutedRole.id)) {
                     await member.roles.remove(mutedRole, 'Removing Muted role due to synchronization.');
                     console.log(`Removed Muted role from user ${userId} in guild ${member.guild.id}`);
-                    reportBotStatusToUpdatesChannel(`Removed Muted role from user ${member.displayName} in server ${member.guild.name}`);
+                    reportBotStatusToUpdatesChannel(`🔇 Removed **Muted role** from user **${member.displayName}** in server **${member.guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                 }
             }
             processingUsers.delete(userId);
@@ -318,8 +344,13 @@ async function periodicSync() {
                 const userId = ban.user.id;
                 if (!syncData.bans[userId]) {
                     console.log(`Discovered new ban for user ${userId} in guild ${guild.id}. Syncing across all guilds.`);
-                    reportBotStatusToUpdatesChannel(`Discovered new ban for user ${ban.user.displayName} in server ${guild.name}. Syncing across all servers.`);
-                    await syncBans(userId, true);
+                    const logMessage = [
+                        `🚨 ${bold('Discovered New Ban For User:')}`,
+                        `👤 ${bold('Username:')} ${inlineCode(ban.user.displayName)}`,
+                        `🆔 ${bold('User ID:')} ${inlineCode(ban.user.id)}`,
+                        `🏠 ${bold('Guild:')} ${inlineCode(ban.guild.name)}`,
+                    ].join('\n');
+                    await syncBans(userId, true, logMessage, ban.guild.id);
                 }
             }
         } catch (error) {
@@ -345,8 +376,13 @@ async function periodicSync() {
                 if (storedTimeout !== timeoutEnd) {
                     // Only sync if the timeout has actually changed
                     console.log(`Discovered timeout change for user ${userId} in guild ${guild.id}. Syncing across all guilds.`);
-                    reportBotStatusToUpdatesChannel(`Discovered timeout change for user ${member.displayName} in server ${guild.name}. Syncing across all servers.`);
-                    await syncTimeouts(userId, timeoutEnd);
+                    const logMessage = [
+                        `🚨 ${bold('Discovered Timeout Change For User:')}`,
+                        `👤 ${bold('Username:')} ${inlineCode(member.displayName)}`,
+                        `🆔 ${bold('User ID:')} ${inlineCode(member.id)}`,
+                        `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
+                    ].join('\n');  
+                    await syncTimeouts(userId, timeoutEnd, logMessage);
                 }
 
                 // Sync Muted role
@@ -358,14 +394,20 @@ async function periodicSync() {
                         // Update syncData if the origin guild's muted status has changed
                         if (storedMutedData.muted !== hasMutedRole) {
                             console.log(`Muted role status changed for user ${userId} in origin guild ${guild.id}. Syncing across all guilds.`);
-                            reportBotStatusToUpdatesChannel(`Muted role status changed for user ${member.displayName} in origin server ${guild.name}. Syncing across all servers.`);
-                            await syncMutedRole(userId, hasMutedRole, guild.id);
+                            const logMessage = [
+                                `🚨 ${bold('Muted Role Status Changed For User:')}`,
+                                `👤 ${bold('Username:')} ${inlineCode(member.displayName)}`,
+                                `🆔 ${bold('User ID:')} ${inlineCode(member.id)}`,
+                                `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
+                                `📅 ${bold('Date:')} ${time(new Date(), 'F')} (UTC)`,
+                            ].join('\n');
+                            reportBotStatusToUpdatesChannel(logMessage);
                         }
                     } else {
                         // Ensure muted status matches the origin guild
                         if (hasMutedRole !== storedMutedData.muted) {
                             console.log(`Correcting Muted role for user ${userId} in guild ${guild.id} to match origin guild.`);
-                            reportBotStatusToUpdatesChannel(`Correcting Muted role for user ${member.displayName} in server ${guild.name} to match origin server.`);
+                            reportBotStatusToUpdatesChannel(`🔧 Correcting Muted role for user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** to match the origin server. Action performed at ${time(new Date(), TimestampStyles.LongDateTime)}.`);
                             processingUsers.add(userId);
                             let mutedRole = guild.roles.cache.find(role => role.name === MUTED_ROLE_NAME);
                             if (!mutedRole) {
@@ -376,21 +418,21 @@ async function periodicSync() {
                                     reason: 'Muted role created for synchronization.',
                                 });
                                 console.log(`Created Muted role in guild ${guild.id}`);
-                                reportBotStatusToUpdatesChannel(`Created Muted role in server ${guild.name}`);
+                                reportBotStatusToUpdatesChannel(`🔇 Created Muted role in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                             }
                             if (storedMutedData.muted) {
                                 // Should be muted, add role
                                 if (!member.roles.cache.has(mutedRole.id)) {
                                     await member.roles.add(mutedRole, 'Muted role synced from origin guild.');
                                     console.log(`Added Muted role to user ${userId} in guild ${guild.id}`);
-                                    reportBotStatusToUpdatesChannel(`Added Muted role to user ${member.displayName} in guild ${guild.name}`);
+                                    reportBotStatusToUpdatesChannel(`🔇 Added Muted role to user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                                 }
                             } else {
                                 // Should not be muted, remove role
                                 if (member.roles.cache.has(mutedRole.id)) {
                                     await member.roles.remove(mutedRole, 'Muted role synced from origin guild.');
                                     console.log(`Removed Muted role from user ${userId} in guild ${guild.id}`);
-                                    reportBotStatusToUpdatesChannel(`Removed Muted role from user ${member.displayName} in guild ${guild.name}`);
+                                    reportBotStatusToUpdatesChannel(`🔊 Removed Muted role from user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                                 }
                             }
                             processingUsers.delete(userId);
@@ -399,8 +441,13 @@ async function periodicSync() {
                 } else if (hasMutedRole) {
                     // User has Muted role but no record in syncData, set this guild as origin
                     console.log(`Discovered Muted role for user ${userId} in guild ${guild.id}. Setting as origin and syncing.`);
-                    reportBotStatusToUpdatesChannel(`Discovered Muted role for user ${member.displayName} in server ${guild.name}. Setting as origin and syncing.`);
-                    await syncMutedRole(userId, hasMutedRole, guild.id);
+                    const logMessage = [
+                        `🔇 ${bold('Muted role')} ${hasMutedRole ? 'added to' : 'removed from'} ${bold('user:')}`,
+                        `👤 ${bold('Username:')} ${inlineCode(member.displayName)}`,
+                        `🆔 ${bold('User ID:')} ${inlineCode(member.id)}`,
+                        `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
+                    ].join('\n');    
+                    await syncMutedRole(userId, hasMutedRole, guild.id, logMessage);
                 }
             }
         } catch (error) {
@@ -416,7 +463,7 @@ setInterval(periodicSync, 60 * 1000);
 // Event handler for new guilds
 client.on('guildCreate', async (guild) => {
     console.log(`Joined new guild: ${guild.name}`);
-    reportBotStatusToUpdatesChannel(`Joined new server: ${guild.name}`);
+    reportBotStatusToUpdatesChannel(`📥 Joined a new server: **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
 
     // Fetch all members to populate the cache
     try {
@@ -433,7 +480,7 @@ client.on('guildCreate', async (guild) => {
                 await guild.bans.create(userId, { reason: 'Ban synced upon joining new server.' });
                 const member = await guild.members.fetch(userId).catch(() => null);
                 console.log(`Banned user ${userId} in new guilds ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`Banned user ${member?.displayName} in new server ${guild.name}`);
+                reportBotStatusToUpdatesChannel(`🚫 Banned user **${member?.displayName}** (ID: ${member?.id}) in the new server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
             } catch (error) {
                 // Ignore if the user is already banned
             }
@@ -447,7 +494,7 @@ client.on('guildCreate', async (guild) => {
             if (member) {
                 await member.timeout(syncData.timeouts[userId]! - Date.now(), 'Timeout synced upon joining new server.');
                 console.log(`Set timeout for user ${userId} in guild ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`Set timeout for user ${member.displayName} in server ${guild.name}`);
+                reportBotStatusToUpdatesChannel(`⏳ Applied timeout to user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
             }
         } catch (error) {
             // Ignore errors if the member is not in the guild
@@ -469,11 +516,11 @@ client.on('guildCreate', async (guild) => {
                             reason: 'Muted role created for synchronization.',
                         });
                         console.log(`Created Muted role in guild ${guild.id}`);
-                        reportBotStatusToUpdatesChannel(`Created Muted role in server ${guild.name}`);
+                        reportBotStatusToUpdatesChannel(`🔇 Created Muted role in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                     }
                     await member.roles.add(mutedRole, 'Muted role synced upon joining new server.');
                     console.log(`Added Muted role to user ${userId} in guild ${guild.id}`);
-                    reportBotStatusToUpdatesChannel(`Added Muted role to user ${member.displayName} in guild ${guild.name}`)
+                    reportBotStatusToUpdatesChannel(`🔊 Added Muted role to user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`)
                 }
             } catch (error) {
                 // Ignore errors if the member is not in the guild
@@ -493,7 +540,7 @@ client.once('ready', async () => {
             await guild.members.fetch();
         } catch (error) {
             console.error(`Failed to fetch members for guild ${guild.id}:`, error);
-            reportBotStatusToUpdatesChannel(`sFailed to fetch members for server ${guild.name}: ${error}`)
+            reportBotStatusToUpdatesChannel(`Failed to fetch members for server ${guild.name}: ${error}`)
         }
     }
 
