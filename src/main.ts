@@ -79,7 +79,6 @@ async function syncBans(userId: string, banned: boolean, logMsg: string, originG
                     } else {
                         bannedMsg.push(`    🚫 Ban enforced on **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
                     }
-                    
                 }
             } else {
                 const bannedMember = await guild.bans.remove(userId, 'Unban synced from another server.');
@@ -101,7 +100,7 @@ async function syncBans(userId: string, banned: boolean, logMsg: string, originG
 }
 
 // Sync timeouts across all guilds
-async function syncTimeouts(userId: string, timeoutEnd: number | null, logMessage: string) {
+async function syncTimeouts(userId: string, timeoutEnd: number | null) {
     if (timeoutEnd && timeoutEnd > Date.now()) {
         syncData.timeouts[userId] = timeoutEnd;
     } else {
@@ -110,9 +109,6 @@ async function syncTimeouts(userId: string, timeoutEnd: number | null, logMessag
     }
     saveData();
 
-    let timeoutMsg: string[] = [];
-    // Fetch the last guild.
-    const lastGuild = Array.from(client.guilds.cache.values()).at(-1);
     for (const guild of client.guilds.cache.values()) {
         try {
             const member = await guild.members.fetch(userId).catch(() => null);
@@ -121,20 +117,12 @@ async function syncTimeouts(userId: string, timeoutEnd: number | null, logMessag
                 if (currentTimeout !== timeoutEnd) {
                     await member.timeout(timeoutEnd ? timeoutEnd - Date.now() : null, 'Timeout synced from another server.');
                     console.log(`Set timeout for user ${userId} in guild ${guild.id}`);
-                    if(timeoutMsg.length == 0) {
-                        timeoutMsg.push( `🔄 ${bold('Propagation:')} Synced timeout across the following servers`);
-                    }
-                    timeoutMsg.push(`   ⏳ Timeout applied to **${member.displayName}** in **${guild.name}** ${time(new Date(), TimestampStyles.RelativeTime)}`);
                 }
             }
         } catch (error) {
             // Ignore errors if the member is not in the guild or lacks permissions
         }
     }
-    
-    timeoutMsg.push(`📅 ${bold('Date:')} ${time(new Date(), 'F')} (UTC)`);
-    reportBotStatusToUpdatesChannel(logMessage + '\n' + timeoutMsg.join('\n') + `\u200B\n\u200B`);
-    
 }
 
 // Sync Muted role across all guilds
@@ -262,13 +250,8 @@ client.on('guildMemberUpdate', async (oldMember: GuildMember | PartialGuildMembe
 
     if (oldTimeout !== newTimeout) {
         console.log(`Timeout updated for user ${userId} in guild ${newMember.guild.id}. Syncing timeout.`);
-        const logMessage = [
-            `🚨 ${bold('Timeout updated for user:')}`,
-            `👤 ${bold('Username:')} ${inlineCode(newMember.displayName)}`,
-            `🆔 ${bold('User ID:')} ${inlineCode(newMember.id)}`,
-            `🏠 ${bold('Guild:')} ${inlineCode(newMember.guild.name)}`,
-        ].join('\n');  
-        await syncTimeouts(userId, newTimeout, logMessage);
+        await syncTimeouts(userId, newTimeout);
+        reportBotStatusToUpdatesChannel(`   ⏳ Timeout applied to **${newMember.displayName}** (ID: ${newMember.id}) in **${newMember.guild.name}** - ${time(new Date(), TimestampStyles.RelativeTime)}`);
     }
 
     // Check for role changes (Muted role)
@@ -376,13 +359,7 @@ async function periodicSync() {
                 if (storedTimeout !== timeoutEnd) {
                     // Only sync if the timeout has actually changed
                     console.log(`Discovered timeout change for user ${userId} in guild ${guild.id}. Syncing across all guilds.`);
-                    const logMessage = [
-                        `🚨 ${bold('Discovered Timeout Change For User:')}`,
-                        `👤 ${bold('Username:')} ${inlineCode(member.displayName)}`,
-                        `🆔 ${bold('User ID:')} ${inlineCode(member.id)}`,
-                        `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
-                    ].join('\n');  
-                    await syncTimeouts(userId, timeoutEnd, logMessage);
+                    await syncTimeouts(userId, timeoutEnd);
                 }
 
                 // Sync Muted role
