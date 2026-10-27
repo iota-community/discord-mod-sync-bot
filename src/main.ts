@@ -366,30 +366,39 @@ setInterval(periodicSync, 60 * 1000);
 // Event handler for new guilds
 client.on('guildCreate', async (guild) => {
     console.log(`Joined new guild: ${guild.name}`);
-    reportBotStatusToUpdatesChannel(`📥 Joined a new server: **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
 
-    // Sync bans
+    // Bring the new server in line with the stored bans, timeouts and mutes.
+    // Only users who actually change are counted, and the result is reported as
+    // one summary message instead of one message per user.
+    let bansSynced = 0;
+    let timeoutsSynced = 0;
+    let mutesSynced = 0;
+
+    // Sync bans (skip users who are already banned in this server)
+    const existingBans = await guild.bans.fetch()
+        .then(bans => new Set(bans.keys()))
+        .catch(() => new Set<string>());
     for (const userId in syncData.bans) {
-        if (syncData.bans[userId]) {
-            try {
-                await guild.bans.create(userId, { reason: 'Ban synced upon joining new server.' });
-                const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
-                console.log(`Banned user ${userId} in new guilds ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`🚫 Banned user **${member?.displayName}** (ID: ${member?.id}) in the new server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
-            } catch (error) {
-                // Ignore if the user is already banned
-            }
+        if (!syncData.bans[userId] || existingBans.has(userId)) continue;
+        try {
+            await guild.bans.create(userId, { reason: 'Ban synced upon joining new server.' });
+            console.log(`Banned user ${userId} in new guild ${guild.id}`);
+            bansSynced++;
+        } catch (error) {
+            console.error(`Failed to sync ban for user ${userId} to guild ${guild.id}:`, error);
         }
     }
 
-    // Sync timeouts
+    // Sync timeouts (only ones that haven't expired yet)
     for (const userId in syncData.timeouts) {
+        const timeoutEnd = syncData.timeouts[userId];
+        if (!timeoutEnd || timeoutEnd <= Date.now()) continue;
         try {
             const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
-            if (member) {
-                await member.timeout(syncData.timeouts[userId]! - Date.now(), 'Timeout synced upon joining new server.');
+            if (member && member.communicationDisabledUntilTimestamp !== timeoutEnd) {
+                await member.timeout(timeoutEnd - Date.now(), 'Timeout synced upon joining new server.');
                 console.log(`Set timeout for user ${userId} in guild ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`⏳ Applied timeout to user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
+                timeoutsSynced++;
             }
         } catch (error) {
             // Ignore errors if the member is not in the guild
@@ -413,15 +422,19 @@ client.on('guildCreate', async (guild) => {
                         console.log(`Created Muted role in guild ${guild.id}`);
                         reportBotStatusToUpdatesChannel(`🔇 Created Muted role in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
                     }
-                    await member.roles.add(mutedRole, 'Muted role synced upon joining new server.');
-                    console.log(`Added Muted role to user ${userId} in guild ${guild.id}`);
-                    reportBotStatusToUpdatesChannel(`🔊 Added Muted role to user **${member.displayName}** (ID: ${member.id}) in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`)
+                    if (!member.roles.cache.has(mutedRole.id)) {
+                        await member.roles.add(mutedRole, 'Muted role synced upon joining new server.');
+                        console.log(`Added Muted role to user ${userId} in guild ${guild.id}`);
+                        mutesSynced++;
+                    }
                 }
             } catch (error) {
                 // Ignore errors if the member is not in the guild
             }
         }
     }
+
+    reportBotStatusToUpdatesChannel(`📥 Joined a new server: **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}. Synced ${bansSynced} bans, ${timeoutsSynced} timeouts and ${mutesSynced} Muted roles.`);
 });
 
 // On bot ready
