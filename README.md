@@ -47,5 +47,5 @@ docker compose up -d --build
 ## How it works
 
 - **Bans / unbans** are synced instantly via ban events, plus a ban list check every minute (catches anything missed while offline). Bans are applied by user ID, so they also work pre-emptively for people who are not (yet) in the other server.
-- **Timeouts** and the **Muted role** are synced instantly via audit log events (needs `VIEW_AUDIT_LOG`).
+- **Timeouts** and the **Muted role** are synced instantly via audit log events (needs `VIEW_AUDIT_LOG`). A change in any server (adding or removing) is synced to all others; no server "owns" a mute.
 - Known limitation: a timeout or Muted role can only be applied to someone who is already in the other server. If they join that server later, it is not applied on join (that would need the privileged Server Members intent).

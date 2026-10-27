@@ -256,62 +256,19 @@ async function handleMutedRoleChange(guild: Guild, userId: string, hasMutedRole:
 
     const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
     const displayName = member?.displayName ?? userId;
+    // No server "owns" the Muted status: a change in any server is synced to all
+    // others, like timeouts. The server where the change happened is only stored
+    // as the origin so it is skipped when syncing.
     const originGuildId = guild.id;
 
-    // If the change happened in the origin guild, we propagate it
-    if (
-        !syncData.mutedRoles[userId] ||
-        syncData.mutedRoles[userId].originGuildId === originGuildId
-    ) {
-        console.log(`Muted role ${hasMutedRole ? 'added to' : 'removed from'} user ${userId} in guild ${originGuildId}. Syncing Muted role.`);
-        const logMessage = [
-            `🔇 ${bold('Muted role')} ${hasMutedRole ? 'added to' : 'removed from'} ${bold('user:')}`,
-            `👤 ${bold('Username:')} ${inlineCode(displayName)}`,
-            `🆔 ${bold('User ID:')} ${inlineCode(userId)}`,
-            `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
-        ].join('\n');
-        await syncMutedRole(userId, hasMutedRole, originGuildId, logMessage);
-        return;
-    }
-
-    // Change happened in a non-origin guild, revert the change
-    if (!member) return;
-    console.log(`Muted role change detected in non-origin guild for user ${userId} in guild ${originGuildId}. Reverting change.`);
-    reportBotStatusToUpdatesChannel(`Muted role change detected in non-origin guild for user ${displayName} in server ${guild.name}. Reverting change.`);
-    let mutedRole = guild.roles.cache.find(role => role.name === MUTED_ROLE_NAME);
-    if (!mutedRole) {
-        // Create the Muted role if it doesn't exist
-        mutedRole = await guild.roles.create({
-            name: MUTED_ROLE_NAME,
-            permissions: [],
-            reason: 'Muted role created for synchronization.',
-        });
-        console.log(`Created Muted role in guild ${guild.id}`);
-        reportBotStatusToUpdatesChannel(`🔇 Created **Muted role** in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
-    }
-
-    processingUsers.add(userId);
-    try {
-        if (syncData.mutedRoles[userId].muted) {
-            // Should be muted, re-add the role
-            if (!member.roles.cache.has(mutedRole.id)) {
-                await member.roles.add(mutedRole, 'Re-adding Muted role due to synchronization.');
-                console.log(`Re-added Muted role to user ${userId} in guild ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`🔄 Re-added **Muted role** to user **${displayName}** in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
-            }
-        } else {
-            // Should not be muted, remove the role
-            if (member.roles.cache.has(mutedRole.id)) {
-                await member.roles.remove(mutedRole, 'Removing Muted role due to synchronization.');
-                console.log(`Removed Muted role from user ${userId} in guild ${guild.id}`);
-                reportBotStatusToUpdatesChannel(`🔇 Removed **Muted role** from user **${displayName}** in server **${guild.name}** at ${time(new Date(), TimestampStyles.LongDateTime)}`);
-            }
-        }
-    } catch (error) {
-        console.error(`Failed to revert Muted role for user ${userId} in guild ${guild.id}:`, error);
-    } finally {
-        processingUsers.delete(userId);
-    }
+    console.log(`Muted role ${hasMutedRole ? 'added to' : 'removed from'} user ${userId} in guild ${originGuildId}. Syncing Muted role.`);
+    const logMessage = [
+        `🔇 ${bold('Muted role')} ${hasMutedRole ? 'added to' : 'removed from'} ${bold('user:')}`,
+        `👤 ${bold('Username:')} ${inlineCode(displayName)}`,
+        `🆔 ${bold('User ID:')} ${inlineCode(userId)}`,
+        `🏠 ${bold('Guild:')} ${inlineCode(guild.name)}`,
+    ].join('\n');
+    await syncMutedRole(userId, hasMutedRole, originGuildId, logMessage);
 }
 
 // Event handler for audit log entries (timeouts and Muted role).
